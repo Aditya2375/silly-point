@@ -43,7 +43,7 @@ function buildSeedMatch() {
         const who = d.striker;
         del = { type: "run", batRuns: 0, bowler: inn.currentBowler, striker: d.striker, wk: { how: pick(wkTypes), who } };
       } else {
-        const weights = [0.30, 0.24, 0.09, 0.015, 0.15, 0.02, 0.18 * aggression]; // 0,1,2,3,4,5,6
+        const weights = [0.34, 0.26, 0.08, 0.01, 0.105, 0.01, 0.085 * aggression]; // 0,1,2,3,4,5,6
         let cum = 0, choice = 0;
         const rr = rnd();
         const totalW = weights.reduce((a, b) => a + b, 0);
@@ -56,9 +56,9 @@ function buildSeedMatch() {
     match.innings[match.innings.length - 1].complete = true;
   }
 
-  playInnings(m, A.players, B.players, 1.0);
+  playInnings(m, A.players, B.players, 0.9);
   if (m.status !== "done") {
-    playInnings(m, B.players, A.players, 1.15);
+    playInnings(m, B.players, A.players, 1.0);
   }
   Cricket.checkResult(m);
   return m;

@@ -89,6 +89,7 @@ window.addEventListener("hashchange", route);
 
 /* ———— home ———— */
 function renderHome() {
+  closeModal();
   const matches = Object.values(store.matches).sort((a, b) => b.created.localeCompare(a.created));
   $("#app").innerHTML = `
     <div class="home-hero">
@@ -245,7 +246,8 @@ function scorecardHTML(m, innIdx) {
   const howOut = b => {
     if (!b.out) return "not out";
     const h = b.out.how;
-    return { bowled: "b " + (b.out.bowler || ""), caught: "c & b", lbw: "lbw", stumped: "st", "hit-wicket": "hit wicket", "run-out": "run out" }[h] || h;
+    const bw = b.out.bowler || "";
+    return { bowled: "b " + bw, caught: (bw ? "c † b " + bw : "caught"), lbw: "lbw b " + bw, stumped: "st † b " + bw, "hit-wicket": "hit wicket b " + bw, "run-out": "run out" }[h] || h;
   };
   return `
     <p class="kicker" style="margin-bottom:10px">${esc(m.teams[inn.bat].name)} — ${d.runs}/${d.wickets} (${d.overStr} ov)</p>
@@ -518,6 +520,7 @@ function wicketFlow(m, d, commit) {
 /* ———— watch view ———— */
 let watchId = null;
 function renderWatch(id) {
+  closeModal();
   const m = getMatch(id);
   if (watchId !== id) { watchId = id; syncReady = false; }
   syncInitOnceWatch(id);
