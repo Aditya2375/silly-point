@@ -1,0 +1,28 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Silly Point — live cricket scoring</title>
+<meta name="description" content="Score a cricket match ball by ball; everyone else watches it live on a link.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Spectral:ital,wght@0,300;0,400;0,500;0,600;1,400&family=Space+Grotesk:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="styles.css">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><circle cx='50' cy='50' r='40' fill='%23b33a3a'/></svg>">
+</head>
+<body>
+<header class="topbar">
+  <a class="brand" href="#/">SILLY&nbsp;POINT<span class="brand-sub">live cricket scoring</span></a>
+  <div class="topbar-right" id="conn-pill" hidden><span class="conn-dot"></span><span id="conn-text">offline</span></div>
+</header>
+<main id="app"></main>
+<footer class="colophon">
+  <p>Built for hostel-turf cricket. Ball by ball in, live link out.</p>
+</footer>
+<script src="https://unpkg.com/mqtt@5.10.1/dist/mqtt.min.js"></script>
+<script src="engine.js"></script>
+<script src="seed.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
