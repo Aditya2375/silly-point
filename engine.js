@@ -189,7 +189,9 @@ const Cricket = (() => {
 
   // plain-language ball description for the watch feed
   function describe(d, names) {
-    const bowler = d.bowler.split(" ").map(p => p[0]).join(". ").replace("..", ".") + " to " + d.striker;
+    const parts = d.bowler.trim().split(/\s+/);
+    const bname = parts.length > 1 ? parts[0][0] + ". " + parts[parts.length - 1] : d.bowler;
+    const bowler = bname + " to " + d.striker;
     if (d.wk) {
       const hows = { bowled: "BOWLED HIM", caught: "OUT, caught", lbw: "OUT, leg before", stumped: "OUT, stumped", "hit-wicket": "OUT, hit wicket", "run-out": "OUT, run out" };
       return `<b>WICKET.</b> ${bowler} — ${hows[d.wk.how] || "out"}. ${d.wk.who} goes.`;

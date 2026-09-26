@@ -553,10 +553,16 @@ function renderWatch(id) {
       ? `<div class="card"><div class="card-body">${scorecardHTML(m, innIdx)}${m.innings.length > 1 ? `<hr class="rule">${scorecardHTML(m, 0)}` : ""}</div></div>`
       : `<div class="commentary">
           ${feed.length === 0 ? `<div class="empty"><div class="big">First ball soon.</div></div>` : ""}
-          ${feed.map(del => {
-            const overNum = Math.floor((inn.deliveries.indexOf(del)) / 6);
-            return `<div class="commentary-item"><span class="commentary-ball">${overNum + 1}.${(inn.deliveries.slice(0, inn.deliveries.indexOf(del) + 1).filter(x => x.type !== "wd" && x.type !== "nb").length - 1) % 6 + 1}</span><span class="commentary-text">${Cricket.describe(del)}</span></div>`;
-          }).join("")}
+          ${(() => {
+            let legal = 0;
+            const labeled = inn.deliveries.map(del => {
+              const isL = del.type !== "wd" && del.type !== "nb";
+              if (isL) legal++;
+              return { del, label: Math.floor((legal - (isL ? 1 : 0)) / 6) + 1 + "." + ((isL ? legal - 1 : legal) % 6 + 1) };
+            });
+            return labeled.slice(-14).reverse().map(({ del, label }) =>
+              `<div class="commentary-item"><span class="commentary-ball">${label}</span><span class="commentary-text">${Cricket.describe(del)}</span></div>`).join("");
+          })()}
         </div>`}
     ${m.result ? `<div class="result-card" style="margin-top:22px"><h2>${esc(m.result)}</h2></div>` : ""}`;
   $$(".scorecard-tabs .chip").forEach(c => c.addEventListener("click", () => { scorerView = c.dataset.v; renderWatch(id); }));
