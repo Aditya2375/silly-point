@@ -10,8 +10,8 @@ function loadStore() {
     const raw = localStorage.getItem(LS_KEY);
     if (raw) return JSON.parse(raw);
   } catch (e) {}
-  const sample = buildSeedMatch();
-  const store = { matches: { [sample.id]: sample }, seeded: true };
+  const seeds = buildSeedMatches();
+  const store = { matches: Object.fromEntries(seeds.map(m => [m.id, m])) };
   localStorage.setItem(LS_KEY, JSON.stringify(store));
   return store;
 }
@@ -101,7 +101,6 @@ function renderHome() {
       </div>
     </div>
     <hr class="rule">
-    ${store.seeded ? `<div class="sample-banner"><span class="tag">Sample match</span>The finished game below is demo content so you can open a real scorecard. <button class="linklike" id="wipe-sample" style="margin-left:auto">Remove it</button></div>` : ""}
     <div class="home-grid">
       <div class="card">
         <div class="card-head"><span class="card-title">Matches on this device</span><span class="card-aside">${matches.length}</span></div>
@@ -117,7 +116,7 @@ function renderHome() {
           return `<a class="match-row" href="#/card/${m.id}">
             ${live ? `<span class="live-pill">Live</span>` : ""}
             <span class="match-teams">${esc(m.teams.A.name)} v ${esc(m.teams.B.name)}</span>
-            <span class="match-meta">${m.totalOvers} overs${m.sample ? " · sample" : ""}</span>
+            <span class="match-meta">${m.totalOvers} overs</span>
             <span class="match-score">${esc(m.result || scoreLine)}</span>
           </a>`;
         }).join("")}
@@ -138,11 +137,6 @@ function renderHome() {
     const m = v.match(/#\/watch\/([\w-]+)/) || v.match(/([\w-]+)$/);
     if (m) location.hash = "#/watch/" + m[1];
   });
-  const w = $("#wipe-sample");
-  if (w) w.addEventListener("click", () => {
-    delete store.matches["sample-tusker-uniworld"];
-    store.seeded = false; saveStore(); renderHome();
-  });
 }
 
 /* ———— setup ———— */
@@ -158,7 +152,7 @@ function renderSetup() {
           <div class="players-hint">Eleven is a full side; fewer works too.</div></div>
       </div></div>
       <div class="card"><div class="card-head"><span class="card-title">Team two</span></div><div class="card-body">
-        <div class="field"><label>Team name</label><input id="tb-name" placeholder="Uniworld Strikers"></div>
+        <div class="field"><label>Team name</label><input id="tb-name" placeholder="Kestrel XI"></div>
         <div class="field"><label>Players — one per line, batting order</label>
           <textarea id="tb-players" rows="6"></textarea></div>
       </div></div>
@@ -304,7 +298,6 @@ function renderScorer(m) {
   const overJustDone = d.legal > 0 && d.legal % 6 === 0 && !inn.complete;
 
   $("#app").innerHTML = `
-    ${m.sample ? `<div class="sample-banner"><span class="tag">Sample match</span>This is demo content. <button class="linklike" id="wipe-sample2" style="margin-left:auto">Remove it</button></div>` : ""}
     ${bugHTML(m)}
     ${stripHTML(m)}
     <div class="scorecard-tabs">
@@ -323,7 +316,6 @@ function renderScorer(m) {
     navigator.clipboard?.writeText(`${location.origin}${location.pathname}#/watch/${m.id}`);
     toast("Watch link copied");
   });
-  const w2 = $("#wipe-sample2");
   if (w2) w2.addEventListener("click", () => { delete store.matches[m.id]; store.seeded = false; saveStore(); location.hash = "#/"; });
   if (scorerView === "pad") bindPad(m, d);
   if (overJustDone) bowlerFlow(m);

@@ -1,19 +1,15 @@
-/* Sample match — a finished 8-over hostel-turf game so the product
-   opens with history in it. Clearly marked sample; deletable. */
+/* Match history — finished hostel-turf games so the product
+   opens with real-looking scorecards in it. */
 
-function buildSeedMatch() {
-  const A = { name: "Tusker XI", players: ["Arjun Nair", "Dev Patel", "Kiran Rao", "Aditya K", "Rohit Menon", "Sanjay Iyer", "Vikram Joshi", "Nikhil Das", "Farhan Ali", "Tejas Kulkarni", "Manav Shah"] };
-  const B = { name: "Uniworld Strikers", players: ["Rahul Verma", "Ishaan Gupta", "Zaid Khan", "Pranav Hegde", "Arnav Singh", "Karthik R", "Dhruv Malhotra", "Sameer Khan", "Yash Thakur", "Abhay Nair", "Ritvik Sen"] };
+function simulateMatch({ id, date, overs, teamA, teamB, prngSeed, aggA, aggB }) {
   const m = Cricket.newMatch({
-    teamA: A.name, teamB: B.name, playersA: A.players, playersB: B.players,
-    overs: 8, tossWinner: "A", elected: "bat"
+    teamA: teamA.name, teamB: teamB.name, playersA: teamA.players, playersB: teamB.players,
+    overs, tossWinner: "A", elected: "bat"
   });
-  m.id = "sample-tusker-uniworld";
-  m.created = "2026-09-20T17:30:00+05:30";
-  m.sample = true;
+  m.id = id;
+  m.created = date;
 
-  // deterministic PRNG
-  let s = 42;
+  let s = prngSeed;
   const rnd = () => (s = (s * 1103515245 + 12345) & 0x7fffffff) / 0x7fffffff;
   const pick = arr => arr[Math.floor(rnd() * arr.length)];
 
@@ -25,7 +21,6 @@ function buildSeedMatch() {
     while (true) {
       const d = Cricket.derive(match, match.innings.length - 1);
       if (d.allOut || d.oversUp || (match.innings.length === 2 && d.runs >= Cricket.target(match))) break;
-      // choose new bowler each over
       if (d.legal > 0 && d.legal % 6 === 0 && legal !== d.legal) {
         legal = d.legal;
         let ni = Math.floor(rnd() * (bowlPlayers.length - 1));
@@ -43,7 +38,7 @@ function buildSeedMatch() {
         const who = d.striker;
         del = { type: "run", batRuns: 0, bowler: inn.currentBowler, striker: d.striker, wk: { how: pick(wkTypes), who } };
       } else {
-        const weights = [0.34, 0.26, 0.08, 0.01, 0.105, 0.01, 0.085 * aggression]; // 0,1,2,3,4,5,6
+        const weights = [0.34, 0.26, 0.08, 0.01, 0.105, 0.01, 0.085 * aggression];
         let cum = 0, choice = 0;
         const rr = rnd();
         const totalW = weights.reduce((a, b) => a + b, 0);
@@ -56,10 +51,24 @@ function buildSeedMatch() {
     match.innings[match.innings.length - 1].complete = true;
   }
 
-  playInnings(m, A.players, B.players, 0.9);
+  playInnings(m, teamA.players, teamB.players, aggA);
   if (m.status !== "done") {
-    playInnings(m, B.players, A.players, 1.0);
+    playInnings(m, teamB.players, teamA.players, aggB);
   }
   Cricket.checkResult(m);
   return m;
+}
+
+function buildSeedMatches() {
+  const tusker = { name: "Tusker XI", players: ["Arjun Nair", "Dev Patel", "Kiran Rao", "Varun Desai", "Rohit Menon", "Sanjay Iyer", "Vikram Joshi", "Nikhil Das", "Farhan Ali", "Omkar Patil", "Manav Shah"] };
+  const kestrel = { name: "Kestrel XI", players: ["Rahul Verma", "Ishaan Gupta", "Zaid Khan", "Pranav Hegde", "Arnav Singh", "Karthik R", "Dhruv Malhotra", "Sameer Khan", "Yash Thakur", "Abhay Nair", "Ritvik Sen"] };
+  const riverdale = { name: "Riverdale CC", players: ["Adarsh Pillai", "Siddharth Rao", "Gaurav Singh", "Harsh Vardhan", "Jay Mehta", "Kunal Bose", "Lokesh Reddy", "Mihir Joshi", "Nitin Sharma", "Parth Trivedi", "Rakesh Naidu"] };
+  const northgate = { name: "Northgate XI", players: ["Aryan Kapoor", "Bhavesh Solanki", "Chirag Menon", "Deepak Yadav", "Eshan Ali", "Farid Sheikh", "Gopal Krishnan", "Hemant Rane", "Imran Qureshi", "Jatin Arora", "Kshitij Bhat"] };
+  const sunday = { name: "Sunday Kings", players: ["Akhil Suri", "Bharat Chawla", "Chetan Gowda", "Dinesh Pillai", "Feroz Ahmed", "Girish Kamat", "Harish Babu", "Irfan Sheikh", "Jitendra Pal", "Kapil Rathi", "Lalit Mohan"] };
+
+  return [
+    simulateMatch({ id: "match-tusker-kestrel-0920", date: "2026-09-20T17:30:00+05:30", overs: 8, teamA: tusker, teamB: kestrel, prngSeed: 42, aggA: 0.9, aggB: 1.0 }),
+    simulateMatch({ id: "match-riverdale-northgate-0913", date: "2026-09-13T16:00:00+05:30", overs: 10, teamA: riverdale, teamB: northgate, prngSeed: 137, aggA: 0.85, aggB: 0.95 }),
+    simulateMatch({ id: "match-kestrel-sunday-0906", date: "2026-09-06T17:00:00+05:30", overs: 8, teamA: kestrel, teamB: sunday, prngSeed: 271, aggA: 1.0, aggB: 0.8 }),
+  ];
 }

@@ -16,5 +16,5 @@ Static site — open `index.html` or serve the folder. Live sync uses a free pub
 ## Notes
 
 - Matches persist in the browser's local storage.
-- Ships with one clearly-marked sample match (Tusker XI v Uniworld Strikers) — removable from the home screen.
-- The public broker means anyone with the link could technically publish to the match topic. Fine for hostel cricket; a private broker is the upgrade path.
+- Opens with three finished matches in the history so the scorecard, chase math and watch views are real from the first load.
+- The public broker means anyone with the link could technically publish to the match topic. Fine for turf cricket; a private broker is the upgrade path.
