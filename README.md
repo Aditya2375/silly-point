@@ -2,6 +2,8 @@
 
 Score a cricket match ball by ball; everyone else watches it live on a link.
 
+Live: https://aditya2375.github.io/silly-point/
+
 ## What it is
 
 - **Scorer console** — runs, wides, no-balls, byes, leg-byes, wickets with dismissal types, per-over bowler rotation (no consecutive overs), undo, manual innings close.
