@@ -5,20 +5,31 @@ const BROKER = "wss://broker.emqx.io:8084/mqtt";
 const TOPIC = id => "sillypoint/match/" + id;
 
 /* ———— store ———— */
+let storageFailed = false;
 function loadStore() {
   try {
     const raw = localStorage.getItem(LS_KEY);
-    if (raw) return JSON.parse(raw);
-  } catch (e) {}
-  const seeds = buildSeedMatches();
-  const store = { matches: Object.fromEntries(seeds.map(m => [m.id, m])) };
-  localStorage.setItem(LS_KEY, JSON.stringify(store));
-  return store;
+    if (raw) {
+      if(raw.length>10*1024*1024)throw new Error("Store too large");
+      const data = JSON.parse(raw);
+      if (!data || typeof data.matches !== 'object' || Array.isArray(data.matches) || Object.keys(data.matches).length > 200) throw new Error('Invalid store');
+      const matches = Object.create(null);
+      for (const [id,m] of Object.entries(data.matches)) {const clean=validateMatch(m);if(id!==clean.id)throw new Error('Invalid ID');matches[id]=clean;}
+      return {matches};
+    }
+  } catch (e) { storageFailed = true; }
+  const seeds = buildSeedMatches().map(validateMatch);
+  return { matches: Object.assign(Object.create(null), Object.fromEntries(seeds.map(m => [m.id,m]))) };
 }
 let store = loadStore();
-function saveStore() { localStorage.setItem(LS_KEY, JSON.stringify(store)); }
-function getMatch(id) { return store.matches[id]; }
-function putMatch(m) { store.matches[m.id] = m; saveStore(); }
+const watchCache = Object.create(null);
+const sharing = new Set(); // Opt-in lasts only for this open page.
+function saveStore() {
+  try { localStorage.setItem(LS_KEY, JSON.stringify(store)); storageFailed=false; }
+  catch(e) { storageFailed=true;toast('Storage unavailable or full. Keep this page open; changes are only in memory.'); }
+}
+function getMatch(id) { return Object.hasOwn(store.matches,id) ? store.matches[id] : watchCache[id]; }
+function putMatch(m) { const clean=validateMatch(m);store.matches[clean.id]=clean;saveStore(); }
 
 /* ———— helpers ———— */
 const $ = (s, el = document) => el.querySelector(s);
@@ -32,56 +43,73 @@ function toast(msg) {
 }
 
 /* ———— sync ———— */
-let mqttClient = null, mqttOk = false, lastSeen = 0;
-const bus = "BroadcastChannel" in window ? new BroadcastChannel("sillypoint") : null;
-
-function syncInit(matchId, onRemote) {
-  const pill = $("#conn-pill");
-  pill.hidden = false;
-  const setConn = (live, label) => {
-    pill.classList.toggle("live", live);
-    $("#conn-text").textContent = label;
-  };
-  if (typeof mqtt !== "undefined") {
+let mqttClient = null, mqttOk = false, lastSeen = 0, syncKey = '', syncClock = null;
+const bus = 'BroadcastChannel' in window ? new BroadcastChannel('sillypoint') : null;
+function syncStop() {
+  if(mqttClient){mqttClient.end(true);mqttClient=null;}
+  mqttOk=false;clearInterval(syncClock);syncClock=null;syncKey='';
+  if(bus)bus.onmessage=null;
+}
+function syncInit(matchId, onRemote, mode='watch') {
+  const wanted = mode+':'+matchId+':'+sharing.has(matchId);
+  if(syncKey===wanted)return;
+  syncStop();syncKey=wanted;lastSeen=0;
+  const pill=$('#conn-pill');pill.hidden=false;
+  const setConn=(live,label)=>{pill.classList.toggle('live',live);$('#conn-text').textContent=label;};
+  const receive = payload => {
+    if(mode!=='watch')return;
     try {
-      mqttClient = mqtt.connect(BROKER, { reconnectPeriod: 4000, connectTimeout: 8000 });
-      mqttClient.on("connect", () => {
-        mqttOk = true;
-        mqttClient.subscribe(TOPIC(matchId));
-        setConn(true, "linked");
-      });
-      mqttClient.on("message", (topic, payload) => {
-        try {
-          const remote = JSON.parse(payload.toString());
-          if (remote && remote.id === matchId) { lastSeen = Date.now(); setConn(true, "live"); onRemote(remote); }
-        } catch (e) {}
-      });
-      mqttClient.on("close", () => { mqttOk = false; setConn(false, "reconnecting…"); });
-      mqttClient.on("error", () => { mqttOk = false; setConn(false, "offline"); });
-    } catch (e) { setConn(false, "offline"); }
-  } else setConn(false, "offline");
-  if (bus) bus.onmessage = ev => {
-    const remote = ev.data;
-    if (remote && remote.id === matchId) { lastSeen = Date.now(); setConn(true, "live (this browser)"); onRemote(remote); }
+      if(typeof payload==='string' && payload.length>512000)return;
+      const remote=validateMatch(typeof payload==='string'?JSON.parse(payload):payload);
+      if(remote.id!==matchId)return;
+      const now=Date.now();if(lastSeen && now-lastSeen<250)return;
+      lastSeen=now;setConn(true,'unverified feed');onRemote(remote);
+    }catch(e){setConn(false,'invalid update ignored');}
   };
-  setInterval(() => {
-    if (lastSeen && Date.now() - lastSeen > 90000) setConn(mqttOk, mqttOk ? "linked" : "offline");
-  }, 15000);
+  if(bus && mode==='watch')bus.onmessage=e=>receive(e.data);
+  setConn(false,mode==='score'?'local scoring':'local / waiting');
+  if(!sharing.has(matchId))return;
+  if(typeof mqtt==='undefined'){setConn(false,'broker unavailable');return;}
+  try{
+    mqttClient=mqtt.connect(BROKER,{reconnectPeriod:10000,connectTimeout:8000,resubscribe:true});
+    mqttClient.on('connect',()=>{
+      mqttOk=true;setConn(true,mode==='score'?'public broadcast':'public / unverified');
+      if(mode==='watch')mqttClient.subscribe(TOPIC(matchId),{qos:0});
+      else {const m=store.matches[matchId];if(m)mqttClient.publish(TOPIC(matchId),JSON.stringify(m),{retain:true});}
+    });
+    mqttClient.on('message',(topic,payload)=>{if(topic===TOPIC(matchId)&&payload.length<=512000)receive(payload.toString());});
+    mqttClient.on('close',()=>{mqttOk=false;setConn(false,'reconnecting');});
+    mqttClient.on('error',()=>{mqttOk=false;setConn(false,'offline');});
+    syncClock=setInterval(()=>{if(lastSeen && Date.now()-lastSeen>90000)setConn(false,'feed stale');},15000);
+  }catch(e){setConn(false,'offline');}
 }
 function publish(match) {
   putMatch(match);
-  const payload = JSON.stringify(match);
-  try { if (mqttClient && mqttOk) mqttClient.publish(TOPIC(match.id), payload, { retain: true }); } catch (e) {}
-  if (bus) bus.postMessage(match);
+  const payload=JSON.stringify(validateMatch(match));
+  if(payload.length>512000){toast('Match too large for live sync; retained locally.');return;}
+  try {if(mqttClient&&mqttOk&&sharing.has(match.id))mqttClient.publish(TOPIC(match.id),payload,{retain:true});}catch(e){toast('Live delivery failed; score kept locally.');}
+  if(bus)bus.postMessage(validateMatch(match));
 }
+function syncControls(id,mode) {
+  return `<div class="sync-notice"><b>${mode==='score'?'Scoring stays local until you opt in.':'Watch feed is unverified.'}</b> Public live sync sends team names, player names and scores to a shared broker. Anyone can read or forge a feed; do not enter private information. Delivery is best effort. <button class="linklike" id="public-sync">${sharing.has(id)?'Disconnect public sync':'Enable public live sync'}</button></div>`;
+}
+function bindSyncControls(id,mode) {
+  $('#public-sync')?.addEventListener('click',()=>{
+    if(sharing.has(id)){sharing.delete(id);syncStop();}
+    else {if(!confirm('Use the public broker for this match? Names and scores are public and updates are not authenticated.'))return;sharing.add(id);}
+    syncKey='';mode==='score'?renderScorer(store.matches[id]):renderWatch(id);
+  });
+}
+window.addEventListener('pagehide',syncStop);
 
 /* ———— router ———— */
 function route() {
+  syncStop();
   const h = location.hash || "#/";
   const [_, page, id] = h.split("/");
   if (page === "new") return renderSetup();
-  if (page === "score" && getMatch(id)) return renderScorer(getMatch(id));
-  if (page === "watch" && (getMatch(id) || id)) return renderWatch(id);
+  if (page === "score" && Object.hasOwn(store.matches,id)) return renderScorer(store.matches[id]);
+  if (page === "watch" && /^[a-zA-Z0-9-]{1,80}$/.test(id || "") && (getMatch(id) || id)) return renderWatch(id);
   if (page === "card" && getMatch(id)) return renderScorecardPage(getMatch(id));
   return renderHome();
 }
@@ -92,9 +120,10 @@ function renderHome() {
   closeModal();
   const matches = Object.values(store.matches).sort((a, b) => b.created.localeCompare(a.created));
   $("#app").innerHTML = `
+    <p class="sample-notice">Includes three illustrative sample matches, not real match results. ${storageFailed?"Stored data could not be read. Original storage has not been overwritten; new saves replace it.":""}</p>
     <div class="home-hero">
       <h1>Score it ball by ball.<br>Everyone else <em>watches it live.</em></h1>
-      <p>One person scores the match from the boundary rope. Friends, teammates and the group chat open a link and see every ball as it lands — no app, no account, no sign-up.</p>
+      <p>Score locally with no account. Optional public-broker sync lets friends follow from a watch link, without a delivery or authenticity guarantee.</p>
       <div class="home-actions">
         <a class="btn" href="#/new">Start a match</a>
         <button class="btn ghost" id="watch-by-id">Watch with a link</button>
@@ -126,7 +155,7 @@ function renderHome() {
         <div class="card-body" style="font-size:14.5px; line-height:1.75">
           <p><b>1.</b> Set the teams, overs and toss. Thirty seconds.</p>
           <p style="margin-top:8px"><b>2.</b> Score from the pad — runs, wides, no-balls, wickets. The scorecard writes itself.</p>
-          <p style="margin-top:8px"><b>3.</b> Share the watch link. Every ball publishes live to whoever opens it, on any phone, anywhere.</p>
+          <p style="margin-top:8px"><b>3.</b> Share the watch link. After the scorer opts into public sync, viewers can opt in from the watch link. Otherwise, same-browser tabs can follow locally.</p>
           <p style="margin-top:8px"><b>4.</b> Cricket first. Other sports later.</p>
         </div>
       </div>
@@ -179,6 +208,7 @@ function renderSetup() {
       tossWinner: $("#f-toss").value,
       elected: $("#f-elect").value
     });
+    if ([m.teams.A,m.teams.B].some(t=>t.players.length<2||new Set(t.players).size!==t.players.length||t.players.some(p=>p.length>80)) || m.teams.A.name.length>100 || m.teams.B.name.length>100) {toast("Use 2-15 unique players per side and names up to 80 characters.");return;}
     putMatch(m);
     location.hash = "#/score/" + m.id;
   });
@@ -250,7 +280,7 @@ function scorecardHTML(m, innIdx) {
       ${d.order.map(n => {
         const b = d.batters[n];
         return `<tr class="${b.out ? "" : "notout"}"><td class="batter-name">${esc(n)}${b.onStrike ? " ●" : ""}</td>
-          <td class="dismissal">${howOut(b)}</td>
+          <td class="dismissal">${esc(howOut(b))}</td>
           <td class="num">${b.runs}</td><td class="num">${b.balls}</td><td class="num">${b.fours}</td><td class="num">${b.sixes}</td></tr>`;
       }).join("")}
       <tr class="totals-row"><td>Extras</td><td class="dismissal">wd ${ext.wd} · nb ${ext.nb} · b ${ext.bye} · lb ${ext.lb}</td><td class="num" colspan="4">${extTotal}</td></tr>
@@ -305,6 +335,7 @@ function renderScorer(m) {
       <button class="chip ${scorerView === "card" ? "on" : ""}" data-v="card">Scorecard</button>
     </div>
     ${scorerView === "pad" ? padHTML(m, d) : `<div class="card"><div class="card-body">${scorecardHTML(m, innIdx)}</div></div>`}
+    ${syncControls(m.id,"score")}
     <div class="share-box">
       <span class="kicker">Watch link</span>
       <span class="share-url">${location.origin}${location.pathname}#/watch/${m.id}</span>
@@ -312,25 +343,16 @@ function renderScorer(m) {
     </div>`;
 
   $$(".scorecard-tabs .chip").forEach(c => c.addEventListener("click", () => { scorerView = c.dataset.v; renderScorer(m); }));
-  $("#copy-link").addEventListener("click", () => {
-    navigator.clipboard?.writeText(`${location.origin}${location.pathname}#/watch/${m.id}`);
-    toast("Watch link copied");
-  });
-  if (w2) w2.addEventListener("click", () => { delete store.matches[m.id]; store.seeded = false; saveStore(); location.hash = "#/"; });
+  $("#copy-link").addEventListener("click", () => copyWatchLink(m.id));
   if (scorerView === "pad") bindPad(m, d);
-  if (overJustDone) bowlerFlow(m);
+  if (overJustDone && inn.currentBowler === d.lastBowler) bowlerFlow(m);
 
   syncInitOnce(m.id);
 }
 
-let syncReady = false;
 function syncInitOnce(id) {
-  if (syncReady) return;
-  syncReady = true;
-  syncInit(id, remote => {
-    const local = getMatch(id);
-    if (JSON.stringify(remote) !== JSON.stringify(local)) { putMatch(remote); route(); }
-  });
+  syncInit(id, () => {}, 'score');
+  bindSyncControls(id,'score');
 }
 
 function padHTML(m, d) {
@@ -472,7 +494,7 @@ function bowlerFlow(m) {
 
 function wicketFlow(m, d, commit) {
   const o = modal(`
-    <div class="sheet-head"><h3>Wicket</h3><button class="linklike" onclick="document.getElementById('sp-modal').remove()">Cancel</button></div>
+    <div class="sheet-head"><h3>Wicket</h3><button class="linklike" id="cancel-wicket">Cancel</button></div>
     <div class="sheet-body">
       <div class="field"><label>How</label>
         <div class="wk-grid">
@@ -484,6 +506,7 @@ function wicketFlow(m, d, commit) {
         <select id="wk-runs">${[0, 1, 2, 3].map(r => `<option>${r}</option>`).join("")}</select></div>
       <div class="sheet-actions"><button class="btn danger" id="wk-go">Confirm wicket</button></div>
     </div>`);
+  $("#cancel-wicket").addEventListener("click",closeModal);
   let how = "bowled";
   $$(".wk-opt", o).forEach(b => b.addEventListener("click", () => {
     $$(".wk-opt", o).forEach(x => x.classList.remove("on"));
@@ -498,32 +521,32 @@ function wicketFlow(m, d, commit) {
       who = $("#wk-who").value === "striker" ? d.striker : d.nonStriker;
       batRuns = +$("#wk-runs").value;
     }
-    // non-striker run-out: engine replaces striker; to keep it simple we treat
-    // a non-striker run-out by swapping first
-    if (who === d.nonStriker) {
-      const inn = m.innings[m.innings.length - 1];
-      [inn.striker, inn.nonStriker] = [inn.nonStriker, inn.striker];
-    }
     closeModal();
     commit({ type: "run", batRuns, wk: { how, who } });
   });
 }
 
 /* ———— watch view ———— */
+async function copyWatchLink(id) {
+  try {await navigator.clipboard.writeText(`${location.origin}${location.pathname}#/watch/${id}`);toast('Watch link copied');}
+  catch(e){toast('Copy unavailable. Select and copy the displayed link.');}
+}
 let watchId = null;
 function renderWatch(id) {
   closeModal();
-  const m = getMatch(id);
-  if (watchId !== id) { watchId = id; syncReady = false; }
-  syncInitOnceWatch(id);
+  const m = watchCache[id] || getMatch(id);
+  if (watchId !== id) { watchId = id; }
+
 
   if (!m) {
     $("#app").innerHTML = `
+      ${syncControls(id,"watch")}
       <div class="watch-banner"><span class="live-pill">Waiting</span>
-        <span class="watch-note">Listening for this match. When the scorer starts, it appears here live.</span></div>
+        <span class="watch-note">Waiting for this match. Public sync must be enabled at both ends.</span></div>
       <div class="empty"><div class="big">No signal yet.</div>
-        Keep this tab open — the first ball lands here the moment it's scored.<br><br>
+        Keep this tab open — updates can appear after the scorer broadcasts and you enable public sync.<br><br>
         <span style="font-family:var(--mono);font-size:11px">match ${esc(id)}</span></div>`;
+    syncInitOnceWatch(id);
     return;
   }
   const innIdx = m.innings.length - 1;
@@ -531,8 +554,9 @@ function renderWatch(id) {
   const feed = inn ? inn.deliveries.slice(-14).reverse() : [];
   const d = inn ? Cricket.derive(m, innIdx) : null;
   $("#app").innerHTML = `
+    ${syncControls(id,"watch")}
     <div class="watch-banner">
-      <span class="live-pill">${m.status === "done" ? "Result" : "Live"}</span>
+      <span class="live-pill">${m.status === "done" ? "Result" : "Unverified"}</span>
       <span class="watch-note">${esc(m.teams.A.name)} v ${esc(m.teams.B.name)} · ${m.totalOvers} overs · updates itself</span>
     </div>
     ${m.innings.length ? bugHTML(m) : `<div class="empty"><div class="big">Toss done, first ball soon.</div></div>`}
@@ -547,7 +571,7 @@ function renderWatch(id) {
           ${feed.length === 0 ? `<div class="empty"><div class="big">First ball soon.</div></div>` : ""}
           ${(() => {
             let legal = 0;
-            const labeled = inn.deliveries.map(del => {
+            const labeled = (inn?.deliveries || []).map(del => {
               const isL = del.type !== "wd" && del.type !== "nb";
               if (isL) legal++;
               return { del, label: Math.floor((legal - (isL ? 1 : 0)) / 6) + 1 + "." + ((isL ? legal - 1 : legal) % 6 + 1) };
@@ -558,11 +582,11 @@ function renderWatch(id) {
         </div>`}
     ${m.result ? `<div class="result-card" style="margin-top:22px"><h2>${esc(m.result)}</h2></div>` : ""}`;
   $$(".scorecard-tabs .chip").forEach(c => c.addEventListener("click", () => { scorerView = c.dataset.v; renderWatch(id); }));
+  syncInitOnceWatch(id);
 }
 function syncInitOnceWatch(id) {
-  if (syncReady) return;
-  syncReady = true;
-  syncInit(id, remote => { putMatch(remote); renderWatch(id); });
+  syncInit(id,remote=>{watchCache[id]=remote;renderWatch(id);},'watch');
+  bindSyncControls(id,'watch');
 }
 
 /* ———— scorecard page ———— */
@@ -576,15 +600,16 @@ function renderScorecardPage(m) {
     ${m.result ? `<div class="result-card" style="margin:18px 0"><h2>${esc(m.result)}</h2></div>` : ""}
     ${m.innings.map((inn, i) => `<div class="card" style="margin-top:16px"><div class="card-body">${scorecardHTML(m, i)}</div></div>`).join("")}
     <div class="result-actions" style="margin-top:24px">
-      ${m.status !== "done" ? `<a class="btn" href="#/score/${m.id}">Open the scorer</a>` : ""}
+      ${m.status !== "done" && Object.hasOwn(store.matches,m.id) ? `<a class="btn" href="#/score/${m.id}">Open the scorer</a>` : ""}
       <a class="btn ghost" href="#/watch/${m.id}">Watch view</a>
       <a class="btn ghost" href="#/">All matches</a>
     </div>
     <div class="share-box">
       <span class="kicker">Watch link</span>
       <span class="share-url">${location.origin}${location.pathname}#/watch/${m.id}</span>
-      <button class="btn small ghost" onclick="navigator.clipboard?.writeText('${location.origin}${location.pathname}#/watch/${m.id}')">Copy</button>
+      <button class="btn small ghost" id="card-copy-link">Copy</button>
     </div>`;
+  $("#card-copy-link")?.addEventListener("click",()=>copyWatchLink(m.id));
 }
 
 route();
