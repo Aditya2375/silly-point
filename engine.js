@@ -4,7 +4,7 @@
 const Cricket = (() => {
 
   function newMatch({ teamA, teamB, playersA, playersB, overs, tossWinner, elected }) {
-    const id = "m" + Date.now().toString(36) + Math.floor(Math.random() * 1296).toString(36);
+    const id = "m" + crypto.randomUUID();
     return {
       id, v: 1,
       created: new Date().toISOString(),
@@ -46,7 +46,7 @@ const Cricket = (() => {
     const bowlTeam = match.teams[bowlingKey(inn)];
     const out = {
       runs: 0, wickets: 0, legal: 0, extras: { wd: 0, nb: 0, bye: 0, lb: 0 },
-      batters: {}, order: [], bowlers: {},
+      batters: Object.create(null), order: [], bowlers: Object.create(null),
       fow: [], thisOver: [], oversDone: 0,
       striker: inn.striker, nonStriker: inn.nonStriker,
       complete: inn.complete
@@ -79,10 +79,10 @@ const Cricket = (() => {
       else totalRuns = d.batRuns; // bye / legbye
 
       out.runs += totalRuns;
-      W.runs += totalRuns;
+      if (d.type !== "bye" && d.type !== "lb") W.runs += totalRuns;
       if (legal) { W.balls++; B.balls++; out.legal++; legalThisOver++; }
       if (isWd) out.extras.wd += totalRuns;
-      if (isNb) out.extras.nb += totalRuns;
+      if (isNb) out.extras.nb += 1;
       if (d.type === "bye") out.extras.bye += totalRuns;
       if (d.type === "lb") out.extras.lb += totalRuns;
 
@@ -102,20 +102,21 @@ const Cricket = (() => {
       else token = String(d.batRuns);
       out.thisOver.push({ token, cls: d.wk ? "wk" : (isWd || isNb || d.type === "bye" || d.type === "lb" ? "ex" : (d.batRuns === 4 ? "b4" : d.batRuns === 6 ? "b6" : "")) });
 
+      // Completed runs move the pair before a run-out. Replace the named
+      // batter at their resulting end, never rewrite the opening pair.
+      const strikeRuns = isWd ? (d.extraRuns || 0) : d.batRuns;
+      if (strikeRuns % 2 === 1) [striker, nonStriker] = [nonStriker, striker];
       if (d.wk) {
         out.wickets++;
-        W.wickets++;
-        B.out = d.wk;
-        out.fow.push({ score: out.runs, n: out.wickets, batter: striker });
-        // next batter: first unused in team order
-        const nxt = batTeam.players.find(p => !usedBatters.has(p)) || ("No. " + (usedBatters.size + 1));
+        if (d.wk.how !== 'run-out') W.wickets++;
+        const dismissed = d.wk.who;
+        batter(dismissed).out = d.wk;
+        out.fow.push({ score: out.runs, n: out.wickets, batter: dismissed });
+        const nxt = batTeam.players.find(p => !usedBatters.has(p)) || ('No. ' + (usedBatters.size + 1));
         usedBatters.add(nxt);
-        striker = nxt;
+        if (dismissed === nonStriker) nonStriker = nxt;
+        else striker = nxt;
       }
-
-      // strike rotation
-      const strikeRuns = (d.type === "run" || isNb || d.type === "bye" || d.type === "lb") ? d.batRuns : 0;
-      if (strikeRuns % 2 === 1) [striker, nonStriker] = [nonStriker, striker];
 
       if (legalThisOver === 6) {
         [striker, nonStriker] = [nonStriker, striker];
@@ -173,6 +174,7 @@ const Cricket = (() => {
 
   function addDelivery(match, d) {
     const inn = match.innings[match.innings.length - 1];
+    if (!inn || inn.complete || match.status !== "live") throw new Error("Innings is not open");
     inn.deliveries.push(d);
     checkResult(match);
   }
@@ -189,12 +191,13 @@ const Cricket = (() => {
 
   // plain-language ball description for the watch feed
   function describe(d, names) {
+    const escape = s => String(s).replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
     const parts = d.bowler.trim().split(/\s+/);
     const bname = parts.length > 1 ? parts[0][0] + ". " + parts[parts.length - 1] : d.bowler;
-    const bowler = bname + " to " + d.striker;
+    const bowler = escape(bname) + " to " + escape(d.striker);
     if (d.wk) {
       const hows = { bowled: "BOWLED HIM", caught: "OUT, caught", lbw: "OUT, leg before", stumped: "OUT, stumped", "hit-wicket": "OUT, hit wicket", "run-out": "OUT, run out" };
-      return `<b>WICKET.</b> ${bowler} — ${hows[d.wk.how] || "out"}. ${d.wk.who} goes.`;
+      return `<b>WICKET.</b> ${bowler} — ${hows[d.wk.how] || "out"}. ${escape(d.wk.who)} goes.`;
     }
     if (d.type === "wd") return `${bowler} — <b>wide</b>${d.extraRuns ? ", " + d.extraRuns + " more" : ""}.`;
     if (d.type === "nb") return `${bowler} — <b>no ball</b>${d.batRuns ? ", " + d.batRuns + " off the bat" : ""}.`;
