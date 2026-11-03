@@ -325,3 +325,6 @@ table.card-table { width: 100%; border-collapse: collapse; }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
 }
+
+.sync-notice,.sample-notice{font:13px/1.65 var(--sans);padding:14px 18px;margin:18px 0;border:1px dashed var(--line-strong);overflow-wrap:anywhere}.sync-notice button{margin-left:8px}.share-url{overflow-wrap:anywhere;min-width:0}.skip-link{position:fixed;top:-80px;left:14px;z-index:1000;background:var(--green);color:white;padding:12px}.skip-link:focus{top:14px}:focus-visible{outline:2px solid var(--leather);outline-offset:4px}.toast{overflow-wrap:anywhere;max-width:calc(100vw - 30px)}
+@media(prefers-reduced-motion:reduce){*,*::before,*::after{animation:none!important;transition:none!important;scroll-behavior:auto!important}}
