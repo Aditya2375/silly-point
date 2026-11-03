@@ -14,3 +14,6 @@ const seeds=vm.runInContext('buildSeedMatches()',c);for(const seed of seeds){c.v
 let invalid=JSON.parse(JSON.stringify(match()));invalid.innings[0].deliveries=Array(3001).fill({});assert.throws(()=>c.validateMatch(invalid));count++;
 invalid=JSON.parse(JSON.stringify(match()));invalid.teams.A.players=['same','same'];assert.throws(()=>c.validateMatch(invalid));count++;
 console.log(count+' engine and schema checks passed');
+m=match();d=add(m,{batRuns:1,wk:{how:'run-out',who:'Bob'}});eq(d.striker,'Carol');eq(d.nonStriker,'Alice');eq(d.batters.Alice.runs,1);eq(d.batters.Bob.out.how,'run-out');
+m=match();d=add(m,{wk:{how:'bowled',who:'Alice'}});eq(d.bowlers.Dan.wickets,1);eq(d.striker,'Carol');
+m=C.newMatch({teamA:'Proto',teamB:'Other',playersA:['__proto__','constructor','safe'],playersB:['__proto__','b'],overs:1,tossWinner:'A',elected:'bat'});C.startInnings(m,'__proto__','constructor','__proto__');d=add(m,{bowler:'__proto__',batRuns:4});eq(d.batters.__proto__.runs,4);eq(d.bowlers.__proto__.runs,4);console.log('extended checks: '+count+' total');
