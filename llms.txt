@@ -1,0 +1,2 @@
+# Silly Point
+Local cricket scoring with optional public MQTT live sync. Watch feeds are unauthenticated and best effort; not for private data or official scoring. Includes three illustrative sample matches.
