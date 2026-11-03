@@ -1,0 +1,1 @@
+{"name":"silly-point","version":"1.0.0","private":true,"scripts":{"test":"node test-engine.cjs"},"dependencies":{"mqtt":"5.10.1"}}
