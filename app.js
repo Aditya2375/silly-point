@@ -43,7 +43,7 @@ function toast(msg) {
 }
 
 /* ———— sync ———— */
-let mqttClient = null, mqttOk = false, lastSeen = 0, syncKey = '', syncClock = null;
+let mqttClient = null, mqttOk = false, lastSeen = 0, syncKey = '', syncClock = null, lastAttempt = 0;
 const bus = 'BroadcastChannel' in window ? new BroadcastChannel('sillypoint') : null;
 function syncStop() {
   if(mqttClient){mqttClient.end(true);mqttClient=null;}
@@ -58,6 +58,7 @@ function syncInit(matchId, onRemote, mode='watch') {
   const setConn=(live,label)=>{pill.classList.toggle('live',live);$('#conn-text').textContent=label;};
   const receive = payload => {
     if(mode!=='watch')return;
+    const attempt=Date.now();if(attempt-lastAttempt<250)return;lastAttempt=attempt;
     try {
       if(typeof payload==='string' && payload.length>512000)return;
       const remote=validateMatch(typeof payload==='string'?JSON.parse(payload):payload);
